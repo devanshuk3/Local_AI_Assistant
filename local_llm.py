@@ -1,11 +1,13 @@
 import subprocess
 import json
+import re
 
-MODEL = "mistral"
+MODEL = "deepseek-r1:8b"   # ✅ Ollama local model
 
 ACTION_ALIASES = {
     "make_folder": "create_folder",
     "create_directory": "create_folder",
+    "create directory": "create_folder",
     "new_folder": "create_folder",
 
     "open_application": "open_app",
@@ -15,94 +17,142 @@ ACTION_ALIASES = {
     "write_text": "type_text",
 
     "press": "press_keys",
+    "press_key": "press_keys"
 
-    "study": "open_mode",
-    "study_mode": "open_mode",
-    "focus_mode": "open_mode",
-
-    "coding": "open_mode",
-    "work_mode": "open_mode",
+    
 }
 
-SYSTEM_PROMPT = """
-You are a strict JSON generator.
+ACTION_ALIASES.update({
+    "study_mode": "open_mode",
+    "study": "open_mode",
+    "focus_mode": "open_mode",
 
-Rules:
-- Output one JSON object only
-- Use double quotes only
-- No explanations
-- No extra text
+    "coding_mode": "open_mode",
+    "work_mode": "open_mode",
+})
 
-Allowed actions:
-- create_folder
-- open_app
-- type_text
-- press_keys
-- open_mode
+
+from system_utils import get_installed_apps
+
+def _get_jarvis_prompt():
+    apps = get_installed_apps()
+    app_list = ", ".join(list(apps.keys())[:50]) # Limit to top 50 for token safety
+    
+    return f"""
+Assume the persona of JARVIS, a highly capable and proactive AI assistant.
+Your goal is to solve the user's intent using the available actions.
+Think step-by-step about the logical sequence of events.
+
+Available Actions:
+- create_folder(name, location)
+- open_app(app): Use standard names like 'Spotify', 'Chrome', 'Notepad'.
+- type_text(text)
+- press_keys(keys): Use standard AHK notation (e.g., 'Ctrl+L', 'Enter').
+- wait(seconds)
+- shell(command): For any direct system command or URL.
+
+System Context:
+The following apps are confirmed installed: {app_list}
+
+Output ONLY valid JSON.
+Format: {{"thought": "Your reasoning here", "steps": [{{"action": "...", "params": {{...}}}}]}}
 """
 
-
 def _run_ollama(prompt: str) -> str:
+    system_ctx = _get_jarvis_prompt()
+    full_prompt = f"{system_ctx}\n\nUser Intent: {prompt}\n\nJarvis Response:"
+    
+    # Use format: json if supported by the model for better structure
     result = subprocess.run(
-        ["ollama", "run", MODEL],
-        input=prompt,
+        ["ollama", "run", MODEL, "--format", "json"],
+        input=full_prompt,
         capture_output=True,
         encoding="utf-8",
         errors="ignore"
     )
 
     if result.returncode != 0:
-        raise RuntimeError(result.stderr)
+        # Fallback without --format json for older Ollama versions or models
+        result = subprocess.run(
+            ["ollama", "run", MODEL],
+            input=full_prompt,
+            capture_output=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr)
 
     return result.stdout.strip()
 
-
 def _extract_json(text: str) -> dict:
-    start = text.find("{")
-    if start == -1:
-        raise ValueError("No JSON found in response")
+    import json
+    
+    # Pre-process: fix common AI mistakes (single quotes instead of double)
+    processed = text.strip()
+    # Replace single quotes at JSON-like positions (this is heuristic but helpful)
+    # e.g., 'action': 'wait' -> "action": "wait"
+    processed = re.sub(r"'(\w+)':", r'"\1":', processed)
+    processed = re.sub(r":\s*'([^']*)'", r': "\1"', processed)
 
+    try:
+        start = processed.find("{")
+        end = processed.rfind("}")
+        if start != -1 and end != -1:
+            return json.loads(processed[start:end+1])
+    except:
+        pass
+    
+    # Brute force depth matching if direct load fails
+    start = processed.find("{")
+    if start == -1: raise ValueError(f"No JSON found in response: {text[:100]}")
+    
     depth = 0
-    end = None
-
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
+    for i in range(start, len(processed)):
+        if processed[i] == "{": depth += 1
+        elif processed[i] == "}":
             depth -= 1
             if depth == 0:
-                end = i + 1
-                break
+                try:
+                    return json.loads(processed[start:i + 1])
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON structure: {e}")
 
-    if end is None:
-        raise ValueError("Incomplete JSON output")
+    raise ValueError("Incomplete JSON response from AI")
 
-    raw_json = text[start:end]
-    raw_json = raw_json.replace("'", '"')
 
-    return json.loads(raw_json)
 
 
 def interpret_command(user_command: str) -> dict:
-    prompt = SYSTEM_PROMPT + "\nCommand:\n" + user_command
-    response = _run_ollama(prompt)
-
-    command = _extract_json(response)
+    raw_output = _run_ollama(user_command)
+    command = _extract_json(raw_output)
     _validate_command(command)
-
     return command
 
 
 def _validate_command(cmd: dict):
+    # normalize aliases FIRST
     action = str(cmd.get("action", "")).lower().strip()
-
     if action in ACTION_ALIASES:
-        cmd["action"] = ACTION_ALIASES[action]
+        action = ACTION_ALIASES[action]
+        cmd["action"] = action
 
     from config import ALLOWED_ACTIONS
+    
+    # Check for multi-step first
+    if "steps" in cmd:
+        if not isinstance(cmd["steps"], list):
+            raise ValueError("The 'steps' parameter must be a list of actions.")
+        return # Valid multi-step
 
-    if cmd["action"] not in ALLOWED_ACTIONS:
-        raise ValueError(f"Action not allowed: {cmd['action']}")
+    if not action:
+        raise ValueError("AI failed to determine an action. Please try rephrasing.")
+        
+    if action not in ALLOWED_ACTIONS:
+        raise ValueError(f"Action '{action}' is not allowed or recognized.")
 
     if not isinstance(cmd.get("params"), dict):
-        raise ValueError("Params must be a dictionary")
+        raise ValueError("Command parameters must be a JSON object.")
+
+
+

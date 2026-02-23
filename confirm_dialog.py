@@ -1,52 +1,47 @@
 import customtkinter as ctk
 
-
 def confirm_action(action: str, params: dict) -> bool:
-    """Simple confirmation dialog before executing an action."""
-
     dialog = ctk.CTkToplevel()
-    dialog.title("Confirm Action")
-    dialog.geometry("360x260")
-    dialog.resizable(False, False)
+    dialog.title("Confirm Automation")
+    dialog.geometry("400x320")
+    dialog.attributes("-topmost", True)
     dialog.grab_set()
 
-    details = f"Action: {action}\n\nParameters:\n"
-    for key, value in params.items():
-        details += f"• {key}: {value}\n"
+    # Center dialog
+    dialog.update_idletasks()
+    width = dialog.winfo_width()
+    height = dialog.winfo_height()
+    x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+    y = (dialog.winfo_screenheight() // 2) - (height // 2)
+    dialog.geometry(f'+{x}+{y}')
 
-    label = ctk.CTkLabel(
-        dialog,
-        text=details,
-        justify="left",
-        wraplength=320
-    )
-    label.pack(padx=20, pady=20)
+    header = ctk.CTkLabel(dialog, text="⚠ Confirm Action", font=ctk.CTkFont(size=18, weight="bold"))
+    header.pack(pady=(20, 10))
 
-    user_choice = {"confirmed": False}
+    content_frame = ctk.CTkFrame(dialog, fg_color="gray20")
+    content_frame.pack(padx=20, pady=10, fill="both", expand=True)
 
-    def on_confirm():
-        user_choice["confirmed"] = True
+    text = f"Action: {action.upper()}\n\n"
+    for k, v in params.items():
+        text += f"• {k}: {v}\n"
+
+    label = ctk.CTkLabel(content_frame, text=text, justify="left", font=ctk.CTkFont(family="Consolas", size=12))
+    label.pack(padx=15, pady=15, anchor="w")
+
+    result = {"ok": False}
+
+    def proceed():
+        result["ok"] = True
         dialog.destroy()
 
-    def on_cancel():
+    def cancel():
         dialog.destroy()
 
-    button_row = ctk.CTkFrame(dialog)
-    button_row.pack(pady=10)
+    btns = ctk.CTkFrame(dialog, fg_color="transparent")
+    btns.pack(pady=20)
 
-    ctk.CTkButton(
-        button_row,
-        text="Proceed",
-        fg_color="green",
-        command=on_confirm
-    ).pack(side="left", padx=10)
-
-    ctk.CTkButton(
-        button_row,
-        text="Cancel",
-        fg_color="red",
-        command=on_cancel
-    ).pack(side="left", padx=10)
+    ctk.CTkButton(btns, text="Proceed", fg_color="#2ecc71", hover_color="#27ae60", text_color="white", width=120, command=proceed, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=10)
+    ctk.CTkButton(btns, text="Cancel", fg_color="#e74c3c", hover_color="#c0392b", text_color="white", width=120, command=cancel, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=10)
 
     dialog.wait_window()
-    return user_choice["confirmed"]
+    return result["ok"]

@@ -1,3 +1,15 @@
+Run "C:\Program Files\BraveSoftware\Brave-Browser\Application"
 
-DirCreate A_Desktop "\final_success"
-MsgBox "Folder 'final_success' created"
+Sleep 1500
+
+
+Send "^l"
+
+Sleep 200
+
+
+Send "https://leetcode.com"
+
+
+Send "{Enter}"
+
