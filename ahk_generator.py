@@ -68,7 +68,7 @@ def generate_ahk(command: dict):
     if action not in ALLOWED_ACTIONS:
         raise ValueError(f"Action not allowed: {action}")
 
-    # 🔐 Validate required params
+    #Validate required params
     if action in REQUIRED_PARAMS:
         for key in REQUIRED_PARAMS[action]:
             if key not in params:
