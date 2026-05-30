@@ -2,7 +2,7 @@ import subprocess
 import json
 import re
 
-MODEL = "mistral"   # ✅ Using Mistral via Ollama
+MODEL = "mistral"   #Using Mistral via Ollama
 
 SYSTEM_PROMPT = """
 You are a strict JSON generator for Windows automation.
